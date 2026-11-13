@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#06b6d4">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Karaoke AI">
+  <title>Karaoke Agent Studio v0.1 — AI Phonetic Karaoke</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" type="image/svg+xml" href="/static/icon.svg">
+  <link rel="apple-touch-icon" href="/static/icon.svg">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand-row">
+      <img src="/static/icon.svg" alt="" width="36" height="36" class="brand-logo">
+      <div>
+        <div class="title-line">
+          <h1>Karaoke Agent Studio</h1>
+          <span class="version-pill">v0.1 Prototype</span>
+        </div>
+        <p class="subtitle">Vocal-free 1080p karaoke videos with strictly phonetic English lyrics for Persian, Armenian &amp; Arabic songs</p>
+      </div>
+    </div>
+    <div class="header-meta" id="health-summary" aria-live="polite">
+      <span class="status-dot ok" aria-hidden="true"></span>
+      <span id="health-text">Ready</span>
+    </div>
+  </header>
+
+  <main class="layout-grid">
+    <!-- Left Column: Song Conversion Form + Active Job Progress -->
+    <section class="card form-section" aria-labelledby="convert-heading">
+      <h2 id="convert-heading">Convert a Song</h2>
+
+      <form id="convert-form" action="/api/jobs" method="POST" enctype="multipart/form-data">
+        <fieldset class="choice-fieldset">
+          <legend>Audio Source</legend>
+          <div class="radio-pills">
+            <label class="radio-card" for="src-url">
+              <input type="radio" id="src-url" name="source_type" value="url" checked>
+              <span>YouTube / Web Link</span>
+            </label>
+            <label class="radio-card" for="src-file">
+              <input type="radio" id="src-file" name="source_type" value="file">
+              <span>Upload Audio File</span>
+            </label>
+          </div>
+        </fieldset>
+
+        <div class="form-group" id="url-group">
+          <label for="source-url">Song Link (Required)</label>
+          <span id="url-hint" class="hint">Paste a YouTube, youtu.be, or SoundCloud song URL (starting with https://).</span>
+          <input
+            type="url"
+            id="source-url"
+            name="source_url"
+            required
+            placeholder="https://www.youtube.com/watch?v=..."
+            autocorrect="off"
+            autocapitalize="off"
+            spellcheck="false"
+            enterkeyhint="go"
+            aria-describedby="url-hint"
+            aria-errormessage="url-error"
+          >
+          <div id="url-error" class="error-msg" role="alert">
+            <span aria-hidden="true">⚠</span> Please enter a valid URL starting with http:// or https://.
+          </div>
+        </div>
+
+        <div class="form-group hidden" id="file-group">
+          <label for="audio-file">Audio File (Required)</label>
+          <span id="file-hint" class="hint">Supported formats: MP3, WAV, M4A, FLAC, AAC, OGG.</span>
+          <input
+            type="file"
+            id="audio-file"
+            name="audio_file"
+            accept=".mp3,.wav,.m4a,.flac,.aac,.ogg,audio/*"
+            aria-describedby="file-hint"
+          >
+        </div>
+
+        <fieldset class="choice-fieldset">
+          <legend>Song Language</legend>
+          <div class="radio-pills lang-grid">
+            <label class="radio-card" for="lang-auto">
+              <input type="radio" id="lang-auto" name="language" value="auto" checked>
+              <span>Auto-Detect</span>
+            </label>
+            <label class="radio-card" for="lang-fa">
+              <input type="radio" id="lang-fa" name="language" value="fa">
+              <span>Persian (فارسی)</span>
+            </label>
+            <label class="radio-card" for="lang-hy">
+              <input type="radio" id="lang-hy" name="language" value="hy">
+              <span>Armenian (Հայերեն)</span>
+            </label>
+            <label class="radio-card" for="lang-ar">
+              <input type="radio" id="lang-ar" name="language" value="ar">
+              <span>Arabic (العربية)</span>
+            </label>
+          </div>
+        </fieldset>
+
+        <fieldset class="choice-fieldset">
+          <legend>Lyrics Timing Mode</legend>
+          <div class="radio-pills">
+            <label class="radio-card" for="lyrics-auto">
+              <input type="radio" id="lyrics-auto" name="lyrics_mode" value="auto" checked aria-controls="manual-lyrics-group" aria-expanded="false">
+              <span>Extract from Singer's Voice</span>
+            </label>
+            <label class="radio-card" for="lyrics-manual">
+              <input type="radio" id="lyrics-manual" name="lyrics_mode" value="manual" aria-controls="manual-lyrics-group" aria-expanded="false">
+              <span>Paste Reference Lyrics</span>
+            </label>
+          </div>
+        </fieldset>
+
+        <div class="form-group hidden" id="manual-lyrics-group">
+          <label for="manual-lyrics">Optional Reference Lyrics</label>
+          <span id="lyrics-hint" class="hint">Used only as a spelling reference for words heard in the singer's isolated vocal stem.</span>
+          <textarea
+            id="manual-lyrics"
+            name="manual_lyrics"
+            rows="5"
+            placeholder="Paste native lyrics here..."
+            aria-describedby="lyrics-hint"
+          ></textarea>
+        </div>
+
+        <div id="form-feedback" class="form-feedback" aria-live="polite"></div>
+
+        <button type="submit" id="submit-btn" class="primary-btn">
+          Create 1080p Karaoke Video
+        </button>
+      </form>
+
+      <!-- Live Conversion Progress & Watchdog Monitor -->
+      <div id="job-panel" class="job-panel hidden" aria-live="polite">
+        <div class="job-header">
+          <div>
+            <strong id="job-step-label">Starting pipeline...</strong>
+            <span class="job-meta" id="job-elapsed">0.0s</span>
+          </div>
+          <span id="watchdog-badge" class="badge badge-ok">Watchdog: Healthy</span>
+        </div>
+
+        <progress id="job-progress" max="100" value="5" class="progress-bar">5%</progress>
+
+        <ol class="step-list" id="step-list">
+          <li data-step="step1_ingest">1. Audio Ingest</li>
+          <li data-step="step2_stem_separation">2. Vocal Removal</li>
+          <li data-step="step3_lyrics_search">3. Reference Check</li>
+          <li data-step="step4_vocal_timing">4. Vocal Timing</li>
+          <li data-step="step5_phonetics_and_subtitles">5. Phonetic English</li>
+          <li data-step="step6_video_render">6. 1080p MP4 Render</li>
+        </ol>
+
+        <details class="log-details">
+          <summary>Live Execution Log (<code>pipeline.log</code>)</summary>
+          <pre id="job-log-tail" class="log-console">Waiting for log output...</pre>
+        </details>
+      </div>
+    </section>
+
+    <!-- Right Column: Interactive Karaoke Player + Synchronized 3-Tier Lyrics -->
+    <section class="card player-section" aria-labelledby="player-heading">
+      <div class="player-top-bar">
+        <div>
+          <h2 id="player-heading">Studio Karaoke Player</h2>
+          <p id="player-subtitle" class="player-subtitle">Select a converted song below or start a new conversion.</p>
+        </div>
+        <span id="player-lang-badge" class="badge hidden"></span>
+      </div>
+
+      <div id="video-wrapper" class="video-wrapper">
+        <video id="karaoke-video" controls playsinline preload="metadata" class="karaoke-video hidden"></video>
+        <div id="empty-player" class="empty-player">
+          <p>Your 1080p vocal-free karaoke video and interactive 3-tier phonetic lyrics will appear here.</p>
+        </div>
+      </div>
+
+      <div id="download-bar" class="download-bar hidden" aria-label="Download generated files">
+        <a id="dl-video" class="dl-pill primary-pill" href="#" download>⬇ 1080p MP4 Video</a>
+        <a id="dl-inst" class="dl-pill" href="#" download>Instrumental WAV</a>
+        <a id="dl-voc" class="dl-pill" href="#" download>Isolated Vocals</a>
+        <a id="dl-ass" class="dl-pill" href="#" download>Karaoke .ASS</a>
+        <a id="dl-lrc" class="dl-pill" href="#" download>Lyrics .LRC</a>
+        <a id="dl-json" class="dl-pill" href="#" download>Lyrics .JSON</a>
+        <a id="dl-log" class="dl-pill" href="#" target="_blank" rel="noopener">Run Log</a>
+      </div>
+
+      <div class="lyrics-viewer-header">
+        <h3>Synchronized 3-Tier Phonetic Lyrics</h3>
+        <span class="hint-inline">Click any line to jump video to that phrase</span>
+      </div>
+      <div id="lyrics-list" class="lyrics-list" role="region" aria-label="Synchronized karaoke lyrics">
+        <p class="muted-msg">No lyrics loaded yet.</p>
+      </div>
+    </section>
+  </main>
+
+  <!-- Bottom Library: Converted Songs -->
+  <section class="card library-section" aria-labelledby="library-heading">
+    <div class="library-header">
+      <div>
+        <h2 id="library-heading">Converted Songs Library</h2>
+        <p class="subtitle">Every song is isolated in its own folder with full execution logs &amp; ML telemetry.</p>
+      </div>
+      <button type="button" id="refresh-library-btn" class="secondary-btn">Refresh Library</button>
+    </div>
+    <div id="songs-grid" class="songs-grid">
+      <p class="muted-msg">Loading library...</p>
+    </div>
+  </section>
+
+  <script src="/static/app.js" defer></script>
+</body>
+</html>

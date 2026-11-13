@@ -1,0 +1,30 @@
+# Python bytecode & virtual environments
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+
+# Secrets & local environment variables
+.env
+.env.*
+
+# Generated media, stems, uploads & local run logs
+out/
+uploads/
+logs/
+htdemucs/
+separated/
+*.wav
+*.mp3
+*.mp4
+*.m4a
+*.flac
+*.webp
+test_karaoke.ass
+
+# macOS & IDE files
+.DS_Store
+.idea/
+.vscode/
