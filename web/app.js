@@ -208,19 +208,41 @@
     let activeIdx = -1;
     for (let i = 0; i < currentSongLines.length; i++) {
       const ln = currentSongLines[i];
-      if (t >= ln.start && t <= ln.end + 0.15) {
+      const nextStart = i + 1 < currentSongLines.length ? currentSongLines[i + 1].start : Infinity;
+      const holdEnd = nextStart - ln.end <= 1.2 ? nextStart - 0.02 : ln.end + 0.15;
+      if (t >= ln.start && t <= holdEnd) {
         activeIdx = i;
         break;
       }
     }
+    const prevIdx =
+      activeIdx > 0 &&
+      currentSongLines[activeIdx].start - currentSongLines[activeIdx - 1].end <= 4.0
+        ? activeIdx - 1
+        : -1;
+    const nextIdx =
+      activeIdx >= 0 &&
+      activeIdx + 1 < currentSongLines.length &&
+      currentSongLines[activeIdx + 1].start - currentSongLines[activeIdx].end <= 6.0
+        ? activeIdx + 1
+        : -1;
+    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
     lyricButtons.forEach((btn, idx) => {
       const isAct = idx === activeIdx;
+      const isPrev = idx === prevIdx;
+      const isNext = idx === nextIdx;
       if (isAct && !btn.classList.contains("active-lyric")) {
         btn.classList.add("active-lyric");
-        btn.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        btn.scrollIntoView({
+          block: "center",
+          behavior: prefersReducedMotion ? "auto" : "smooth",
+        });
       } else if (!isAct) {
         btn.classList.remove("active-lyric");
       }
+      btn.classList.toggle("prev-lyric", isPrev);
+      btn.classList.toggle("next-lyric", isNext);
     });
   });
 

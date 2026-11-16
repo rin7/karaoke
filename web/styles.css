@@ -572,11 +572,29 @@ input:user-valid {
   cursor: pointer;
   color: var(--text-main);
   font-family: inherit;
+  opacity: 0.62;
+  @media (prefers-reduced-motion: no-preference) {
+    transition: opacity 0.28s ease-out, translate 0.28s ease-out, border-color 0.28s ease-out;
+  }
+}
+
+.lyric-item.prev-lyric {
+  opacity: 0.45;
+  @media (prefers-reduced-motion: no-preference) {
+    translate: 0 -2px;
+  }
 }
 
 .lyric-item.active-lyric {
+  opacity: 1;
   border-color: var(--accent-color);
   box-shadow: 0 0 0 2px var(--accent-color);
+}
+
+.lyric-item.next-lyric {
+  opacity: 0.85;
+  border-style: dashed;
+  border-color: var(--gold-accent);
 }
 
 .lyric-top-row {
@@ -587,7 +605,7 @@ input:user-valid {
 }
 
 .lyric-native {
-  font-size: 1.1rem;
+  font-size: 1.25rem;
   font-weight: 600;
   line-height: 1.5;
   color: var(--text-main);
@@ -602,14 +620,14 @@ input:user-valid {
 
 .lyric-phonetic {
   margin-block: 0.2rem;
-  font-size: 1.18rem;
+  font-size: 1.35rem;
   font-weight: 700;
   line-height: 1.4;
   color: var(--accent-color);
 }
 
 .lyric-translation {
-  font-size: 0.88rem;
+  font-size: 1rem;
   line-height: 1.45;
   font-style: italic;
   color: var(--text-muted);

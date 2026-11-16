@@ -76,18 +76,26 @@ def run_karaoke_pipeline(
         # Step 3: Optional Verified Reference Lyrics (never guesses from title alone)
         online_lyrics_found = False
         confirmed_lyrics = manual_lyrics
+        confirmed_synced_lyrics = None
         with logger.step("step3_lyrics_search", stall_timeout_sec=60.0):
             if not confirmed_lyrics:
                 print(f"\n[3/6] Checking verified online reference lyrics for: '{meta.get('title')}'...")
-                lyrics_res = auto_search_lyrics(meta.get("title", ""), meta.get("artist", ""))
+                lyrics_res = auto_search_lyrics(
+                    meta.get("title", ""),
+                    meta.get("artist", ""),
+                    duration=float(meta.get("duration") or 0.0),
+                )
                 online_lyrics_found = bool(lyrics_res.get("found"))
                 if online_lyrics_found:
                     print(f"      Found candidate reference lyrics from: {lyrics_res.get('source_url')}")
                     if interactive:
                         with logger.pause_watchdog_for_input():
                             confirmed_lyrics = confirm_lyrics_interactive(lyrics_res)
+                            if confirmed_lyrics and confirmed_lyrics == lyrics_res.get("original_lyrics"):
+                                confirmed_synced_lyrics = lyrics_res.get("synced_lyrics")
                     else:
                         confirmed_lyrics = lyrics_res.get("original_lyrics")
+                        confirmed_synced_lyrics = lyrics_res.get("synced_lyrics")
                 else:
                     print("      No verified text match online — will extract & time lyrics directly from singer's voice.")
                     if interactive:
@@ -104,6 +112,7 @@ def run_karaoke_pipeline(
                 duration=meta["duration"],
                 song_title=meta.get("title", ""),
                 artist=meta.get("artist", ""),
+                synced_lyrics=confirmed_synced_lyrics,
             )
             aligned_lines = align_res.get("lines", [])
             if align_res.get("language") and align_res["language"] not in ("auto", "none") and language_hint == "auto":

@@ -15,7 +15,7 @@ from bs4 import BeautifulSoup
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
 def clean_song_query(title: str, artist: str = "") -> str:
-    """Remove boilerplate video words, album suffixes (// ...), Vol. tags, and years."""
+    """Remove boilerplate video words, parenthetical translations, album suffixes (// ...), Vol. tags, and years."""
     # Keep primary song segment before '//' or '|' metadata blocks
     cleaned = re.split(r"\s*(?://|\|)\s*", title)[0]
     patterns = [
@@ -24,6 +24,7 @@ def clean_song_query(title: str, artist: str = "") -> str:
         r"\(Video.*?\)", r"\[Video.*?\]",
         r"\(Lyric.*?\)", r"\[Lyric.*?\]",
         r"\(Clip.*?\)", r"\[Clip.*?\]",
+        r"\([^)]*\)", r"\[[^\]]*\]",
         r"\bVol\.?\s*\d+\b",
         r"\b(?:19|20)\d{2}\b",
         r"\b(?:HD|4K|1080p|HQ)\b"
@@ -35,6 +36,49 @@ def clean_song_query(title: str, artist: str = "") -> str:
     if artist and artist != "Unknown Artist" and artist.lower() not in cleaned.lower():
         return f"{artist} {cleaned}".strip()
     return cleaned
+
+
+def search_lrclib(query: str, target_duration: float = 0.0) -> List[Dict[str, Any]]:
+    """
+    Query LRCLIB.net REST API for verified plain and timestamp-synced (.lrc) lyrics.
+    Ranks candidates by duration proximity when target_duration > 0.
+    """
+    if not query or not query.strip():
+        return []
+    url = f"https://lrclib.net/api/search?q={urllib.parse.quote(query.strip())}"
+    raw_json = fetch_html(url)
+    if not raw_json:
+        return []
+    try:
+        items = json.loads(raw_json)
+        if not isinstance(items, list):
+            return []
+    except Exception:
+        return []
+
+    results: List[Dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        plain = (item.get("plainLyrics") or "").strip()
+        synced = (item.get("syncedLyrics") or "").strip()
+        if not plain and not synced:
+            continue
+        dur = float(item.get("duration") or 0.0)
+        dur_diff = abs(dur - target_duration) if (target_duration > 0 and dur > 0) else 999.0
+        results.append({
+            "id": item.get("id"),
+            "title": f"{item.get('artistName', '')} - {item.get('trackName', '')}".strip(" -"),
+            "url": f"https://lrclib.net/api/get/{item.get('id')}",
+            "source": "LRCLIB",
+            "duration": dur,
+            "duration_diff": round(dur_diff, 2),
+            "original_lyrics": plain,
+            "synced_lyrics": synced,
+        })
+
+    results.sort(key=lambda r: (0 if r["synced_lyrics"] else 1, r["duration_diff"]))
+    return results
 
 def fetch_html(url: str) -> Optional[str]:
     """Fetch HTML content with standard browser user-agent and SSL context."""
@@ -128,23 +172,39 @@ def extract_lyricstranslate_song(url: str) -> Dict[str, Any]:
 
     return res
 
-def auto_search_lyrics(title: str, artist: str = "") -> Dict[str, Any]:
+def auto_search_lyrics(title: str, artist: str = "", duration: float = 0.0) -> Dict[str, Any]:
     """
-    Main entry point: cleans query and checks verified LyricsTranslate pages.
+    Main entry point: cleans query and checks LRCLIB (for duration-matched synced/plain lyrics)
+    followed by LyricsTranslate pages.
     Does NOT guess lyrics from title text alone (prevents LLM hallucinations);
     when not found, the pipeline transcribes & times directly from the vocal audio.
     """
     query = clean_song_query(title, artist)
-    candidates = search_lyricstranslate(query)
-    
-    best_match = {
+    best_match: Dict[str, Any] = {
         "query": query,
         "found": False,
         "original_lyrics": "",
+        "synced_lyrics": "",
         "source_url": "",
-        "candidates": candidates
+        "candidates": []
     }
-    
+
+    # 1. Check LRCLIB first for duration-matched synced & plain lyrics
+    lrc_candidates = search_lrclib(query, target_duration=duration)
+    if lrc_candidates:
+        top_lrc = lrc_candidates[0]
+        best_match["found"] = True
+        best_match["original_lyrics"] = top_lrc.get("original_lyrics", "")
+        # Only use pre-synced LRC timestamps directly if track duration matches within 4.0s
+        if top_lrc.get("synced_lyrics") and (duration <= 0 or top_lrc.get("duration_diff", 999.0) <= 4.0):
+            best_match["synced_lyrics"] = top_lrc["synced_lyrics"]
+        best_match["source_url"] = top_lrc["url"]
+        best_match["candidates"] = lrc_candidates
+        return best_match
+
+    # 2. Check LyricsTranslate
+    candidates = search_lyricstranslate(query)
+    best_match["candidates"] = candidates
     if candidates:
         top_url = candidates[0]["url"]
         extracted = extract_lyricstranslate_song(top_url)
@@ -154,7 +214,7 @@ def auto_search_lyrics(title: str, artist: str = "") -> Dict[str, Any]:
             best_match["transliterated_lyrics"] = extracted.get("transliterated_lyrics", "")
             best_match["source_url"] = top_url
             return best_match
-            
+
     return best_match
 
 def _read_multiline_paste() -> str:

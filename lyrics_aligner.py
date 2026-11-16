@@ -679,11 +679,71 @@ def resolve_dominant_language_and_filter_outliers(
 
         if run_len >= 4 and word_count <= 3 and avg_dur <= 1.8 and is_interjection:
             removed_count += run_len
+        elif run_len >= 2 and word_count >= 3 and avg_dur <= 1.25:
+            # Coalesce ultra-rushed identical repetitions (< 1.25s for 3+ words, > 4.5 words/s)
+            # in Pairs so outro choruses match natural ~2.3s singing tempo instead of flashing 2x speed
+            k = i
+            while k < j:
+                if k + 1 < j and (float(script_filtered[k + 1]["end"]) - float(script_filtered[k]["start"])) <= 2.8:
+                    merged_item = dict(script_filtered[k])
+                    merged_item["end"] = script_filtered[k + 1]["end"]
+                    final_filtered.append(merged_item)
+                    removed_count += 1
+                    k += 2
+                else:
+                    final_filtered.append(script_filtered[k])
+                    k += 1
         else:
             final_filtered.extend(script_filtered[i:j])
         i = j
 
     return resolved_lang, final_filtered, removed_count
+
+
+def parse_synced_lrc_lines(
+    synced_lrc: str,
+    total_duration: float,
+    vad_intervals: Optional[List[List[float]]] = None,
+    explicit_language: str = "auto",
+) -> Tuple[str, List[Dict[str, Any]]]:
+    """
+    Parse timestamp-synced LRC lines ([MM:SS.xx] text) and anchor their end timestamps
+    against detected VAD vocal intervals so lines never linger across instrumental solos.
+    """
+    entries: List[Tuple[float, str]] = []
+    for raw_ln in (synced_lrc or "").splitlines():
+        m = re.match(r"^\[(\d+):(\d+(?:\.\d+)?)\]\s*(.*)$", raw_ln.strip())
+        if m:
+            ts = int(m.group(1)) * 60 + float(m.group(2))
+            txt = m.group(3).strip()
+            entries.append((ts, txt))
+
+    raw_lines: List[Dict[str, Any]] = []
+    for i, (ts, txt) in enumerate(entries):
+        if not txt:
+            continue
+        nxt_ts = entries[i + 1][0] if i + 1 < len(entries) else min(total_duration, ts + 4.5)
+        w_cnt = max(1, len(txt.split()))
+        natural_max = max(3.6, min(6.2, w_cnt * 0.68))
+        end_ts = min(nxt_ts - 0.08, ts + natural_max)
+
+        # If VAD intervals exist and there is a long solo gap after this line, clamp to active singing end
+        if vad_intervals and (nxt_ts - ts) > 6.5:
+            overlapping_ends = [iv[1] for iv in vad_intervals if iv[0] <= ts + 2.5 and iv[1] >= ts + 0.8]
+            if overlapping_ends:
+                vad_end = min(overlapping_ends, key=lambda e: abs(e - (ts + natural_max)))
+                if ts + 1.2 <= vad_end <= nxt_ts - 0.08:
+                    end_ts = min(end_ts, round(vad_end, 2))
+
+        if end_ts <= ts + 0.3:
+            end_ts = min(total_duration, ts + 1.8)
+        raw_lines.append({"text": txt, "start": round(ts, 2), "end": round(end_ts, 2)})
+
+    resolved_lang, filtered_raw, _ = resolve_dominant_language_and_filter_outliers(
+        raw_lines, chunk_lang_votes=[], explicit_language=explicit_language
+    )
+    aligned = normalize_and_build_words(filtered_raw, total_duration=total_duration, lead_in=0.04)
+    return resolved_lang, aligned
 
 
 def transcribe_and_align_vocals(
@@ -692,16 +752,19 @@ def transcribe_and_align_vocals(
     language: str = "auto",
     duration: float = 180.0,
     song_title: str = "",
-    artist: str = ""
+    artist: str = "",
+    synced_lyrics: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Primary audio-first timing engine:
     1. Scans vocals.wav with VAD to locate real singing and skip instrumental solos.
-    2. Slices active singing into <36s chunks and listens with Gemini 2.5 Flash Audio
+    2. If duration-matched synced_lyrics (.lrc) are available, anchors them directly
+       to the vocal VAD envelope for millisecond-accurate line & word sync.
+    3. Otherwise slices active singing into <22s chunks and listens with Gemini 2.5 Flash Audio
        to capture exact sung lyrics + exact master timestamps.
-    3. Resolves true song language across ALL chunks via Unicode script majority voting
+    4. Resolves true song language across ALL chunks via Unicode script majority voting
        and strips cross-script / crowd / vocalization hallucinations.
-    4. Falls back cleanly to local Whisper or offline VAD alignment if offline.
+    5. Falls back cleanly to local Whisper or offline VAD alignment if offline.
     """
     actual_dur = duration if duration > 0 else probe_audio_duration(vocal_path, 180.0)
     explicit_lang_hint = language if language in ("fa", "ar", "hy") else "auto"
@@ -711,15 +774,33 @@ def transcribe_and_align_vocals(
     if vocal_path and os.path.exists(vocal_path):
         try:
             print("[ALIGN] Scanning isolated singer vocals with Voice Activity Detection (VAD)...")
-            intervals = extract_vocal_intervals_vad(vocal_path, total_duration=actual_dur)
+            intervals = extract_vocal_intervals_vad(vocal_path, total_duration=actual_dur, max_single_interval=20.0)
             print(f"[ALIGN] Detected {len(intervals)} active singing phrases (skipping silent instrumental breaks).")
         except Exception as e:
             print(f"[WARN] VAD scan failed ({e}).")
 
+    # 0. Duration-matched Synced LRC + VAD envelope verification when available
+    if synced_lyrics and synced_lyrics.strip():
+        resolved_lang, synced_aligned = parse_synced_lrc_lines(
+            synced_lyrics,
+            total_duration=actual_dur,
+            vad_intervals=intervals,
+            explicit_language=explicit_lang_hint,
+        )
+        if synced_aligned:
+            print(f"[ALIGN] Anchored {len(synced_aligned)} duration-matched synced LRC lines to vocal waveform.")
+            return {
+                "language": resolved_lang,
+                "lines": synced_aligned,
+                "chunks_processed": len(intervals),
+                "outliers_filtered": 0,
+                "method": "synced_lrc_vad",
+            }
+
     # 1. Multimodal Gemini Audio Transcription & Timing on chunked vocal clips
     api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     if vocal_path and os.path.exists(vocal_path) and api_key and intervals:
-        chunks = group_intervals_into_chunks(intervals, total_duration=actual_dur)
+        chunks = group_intervals_into_chunks(intervals, total_duration=actual_dur, max_chunk_sec=22.0)
         print(f"[ALIGN] Timing lyrics directly from singer's voice across {len(chunks)} vocal segment(s)...")
         collected_raw_lines: List[Dict[str, Any]] = []
         chunk_lang_votes: List[str] = []

@@ -62,15 +62,24 @@ def export_lrc(lines: List[Dict[str, Any]], output_path: str) -> str:
 def export_ass_karaoke(metadata: Dict[str, Any], lines: List[Dict[str, Any]], output_path: str) -> str:
     """
     Generate an Advanced SubStation Alpha (.ass) file configured with:
-    - 3-tier layout:
-        1. Native Script (Arabic / Persian / Armenian)
-        2. Phonetic English (Large, Centered, with \\k color-sweep karaoke effect)
-        3. English Meaning Translation (Italic, subtle contrast)
+    - 3-Slot Center-Focused Rolling Karaoke Stage on 1920x1080:
+        * Top Slot (Previous Line i-1, when gap <= 4.0s):
+            Drifts upward by 25px and smoothly fades out over ~1.8s (\\move + \\fad(0,1100)):
+            1. Prev Native Script (48pt Bold, y=195 -> 170)
+            2. Prev Phonetic English (54pt Bold, y=265 -> 240)
+            3. Prev English Translation (32pt Italic, y=325 -> 300)
+        * Center Slot (Main Active Line i — Full Brightness + \\K Sweep):
+            1. Native Script (68pt Bold, y=465 — slightly smaller than 74pt Latin)
+            2. Phonetic English (74pt Bold, y=555, with \\K color-sweep karaoke effect)
+            3. English Meaning Translation (42pt Italic, y=635)
+        * Bottom Slot (Upcoming Next Line i+1, when gap <= 6.0s):
+            Rises gently by 25px into place and fades in (\\move + \\fad(320,120)):
+            1. Next Native Script (52pt Bold, y=785 -> 760)
+            2. Next Phonetic English (58pt Bold, y=860 -> 835)
+            3. Next English Meaning Translation (34pt Italic, y=925 -> 900)
     """
     # ASS Header and Styles
     # Colors in ASS are &HAABBGGRR (Hex format: Alpha, Blue, Green, Red)
-    # Primary: White (&H00FFFFFF), Secondary/Karaoke highlight: Electric Cyan/Yellow (&H0000E5FF)
-    # Outline: Deep Navy/Black (&H00110B08), Shadow: Black with alpha (&H80000000)
     ass_template = """[Script Info]
 Title: {title} - AI Phonetic Karaoke
 ScriptType: v4.00+
@@ -82,9 +91,15 @@ PlayResY: 1080
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: KaraokePhonetic, Montserrat, 62, &H00FFFFFF, &H0000E5FF, &H00100C09, &H80000000, 1, 0, 0, 0, 100, 100, 1, 0, 1, 3.5, 2.0, 5, 40, 40, 0, 1
-Style: KaraokeNative, Arial, 56, &H00F8F8F8, &H00FFFFFF, &H00100C09, &H80000000, 1, 0, 0, 0, 100, 100, 0, 0, 1, 3.0, 1.8, 5, 40, 40, 80, 1
-Style: KaraokeTranslation, Arial, 34, &H00B0B0B0, &H00FFFFFF, &H00100C09, &H80000000, 0, 1, 0, 0, 100, 100, 0, 0, 1, 2.0, 1.0, 5, 40, 40, 160, 1
+Style: KaraokePhonetic, Montserrat, 74, &H00FFFFFF, &H0000E5FF, &H00100C09, &H80000000, 1, 0, 0, 0, 100, 100, 1, 0, 1, 3.8, 2.2, 5, 40, 40, 0, 1
+Style: KaraokeNative, Arial, 68, &H00F8F8F8, &H00FFFFFF, &H00100C09, &H80000000, 1, 0, 0, 0, 100, 100, 0, 0, 1, 3.2, 2.0, 5, 40, 40, 0, 1
+Style: KaraokeTranslation, Arial, 42, &H00D8DEE9, &H00FFFFFF, &H00100C09, &H80000000, 0, 1, 0, 0, 100, 100, 0, 0, 1, 2.2, 1.2, 5, 40, 40, 0, 1
+Style: KaraokePrevPhonetic, Montserrat, 54, &H70B8C4D4, &H70B8C4D4, &H70100C09, &H80000000, 1, 0, 0, 0, 100, 100, 1, 0, 1, 2.4, 1.2, 5, 40, 40, 0, 1
+Style: KaraokePrevNative, Arial, 48, &H75B0BCCB, &H75B0BCCB, &H70100C09, &H80000000, 1, 0, 0, 0, 100, 100, 0, 0, 1, 2.2, 1.2, 5, 40, 40, 0, 1
+Style: KaraokePrevTranslation, Arial, 32, &H8094A3B8, &H8094A3B8, &H75100C09, &H80000000, 0, 1, 0, 0, 100, 100, 0, 0, 1, 1.6, 0.8, 5, 40, 40, 0, 1
+Style: KaraokeNextPhonetic, Montserrat, 58, &H25DCE6F2, &H00FFFFFF, &H30100C09, &H80000000, 1, 0, 0, 0, 100, 100, 1, 0, 1, 2.8, 1.5, 5, 40, 40, 0, 1
+Style: KaraokeNextNative, Arial, 52, &H30C8D4E3, &H00FFFFFF, &H30100C09, &H80000000, 1, 0, 0, 0, 100, 100, 0, 0, 1, 2.5, 1.5, 5, 40, 40, 0, 1
+Style: KaraokeNextTranslation, Arial, 34, &H40A6B4C8, &H00FFFFFF, &H30100C09, &H80000000, 0, 1, 0, 0, 100, 100, 0, 0, 1, 1.8, 1.0, 5, 40, 40, 0, 1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -94,22 +109,59 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     for idx, line in enumerate(lines):
         l_start = float(line["start"])
         l_end = float(line["end"])
+        display_end = l_end
+
         if idx + 1 < len(lines):
             next_start = float(lines[idx + 1]["start"])
             if l_end > next_start - 0.04:
                 l_end = max(l_start + 0.20, round(next_start - 0.04, 2))
+                display_end = l_end
+            elif (next_start - l_end) <= 1.20:
+                # Hold active display window cleanly up to the next line's start so the roll is seamless
+                display_end = max(l_end, round(next_start - 0.02, 2))
 
         start_str = format_timestamp_ass(l_start)
-        end_str = format_timestamp_ass(l_end)
+        end_str = format_timestamp_ass(display_end)
 
-        # 1. Native script line (placed above phonetic line, slightly smaller than 62pt Latin phonetic)
-        native_text = line.get("native", "").replace("\n", " ")
+        # --- TOP SLOT: Previous Line (Line idx - 1) Fading Out & Drifting Upward ---
+        if idx > 0:
+            prev_line = lines[idx - 1]
+            gap_from_prev = l_start - float(prev_line["end"])
+            if gap_from_prev <= 4.0:
+                prev_fade_end = min(display_end, round(l_start + 1.80, 2))
+                if prev_fade_end > l_start + 0.30:
+                    prev_end_str = format_timestamp_ass(prev_fade_end)
+                    fade_ms = max(350, int(round((prev_fade_end - l_start) * 650)))
+                    move_ms = max(400, int(round((prev_fade_end - l_start) * 900)))
+                    prev_native = prev_line.get("native", "").replace("\n", " ").strip()
+                    prev_phonetic = prev_line.get("phonetic", "").replace("\n", " ").strip()
+                    prev_translation = prev_line.get("translation", "").replace("\n", " ").strip()
+
+                    if prev_native:
+                        events.append(
+                            f"Dialogue: 0,{start_str},{prev_end_str},KaraokePrevNative,,0,0,0,,"
+                            f"{{\\an8\\move(960,195,960,170,0,{move_ms})\\fad(0,{fade_ms})}}{prev_native}"
+                        )
+                    if prev_phonetic:
+                        events.append(
+                            f"Dialogue: 0,{start_str},{prev_end_str},KaraokePrevPhonetic,,0,0,0,,"
+                            f"{{\\an5\\move(960,265,960,240,0,{move_ms})\\fad(0,{fade_ms})}}{prev_phonetic}"
+                        )
+                    if prev_translation:
+                        events.append(
+                            f"Dialogue: 0,{start_str},{prev_end_str},KaraokePrevTranslation,,0,0,0,,"
+                            f"{{\\an2\\move(960,325,960,300,0,{move_ms})\\fad(0,{fade_ms})}}\"{prev_translation}\""
+                        )
+
+        # --- CENTER SLOT: Main Active Line (Line idx) ---
+        # 1. Native script line (68pt bold, centered at y=465 above 74pt phonetic line)
+        native_text = line.get("native", "").replace("\n", " ").strip()
         if native_text:
             events.append(
-                f"Dialogue: 0,{start_str},{end_str},KaraokeNative,,0,0,180,,{{\\an8\\pos(960,635)}}{native_text}"
+                f"Dialogue: 2,{start_str},{end_str},KaraokeNative,,0,0,0,,{{\\an8\\pos(960,465)\\fad(140,140)}}{native_text}"
             )
 
-        # 2. Phonetic line with karaoke \K tags (centiseconds duration + exact gap holds)
+        # 2. Phonetic line with karaoke \K tags (centiseconds duration + exact gap holds, centered at y=555)
         words = line.get("words", [])
         karaoke_parts = []
         if words:
@@ -130,21 +182,47 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             phonetic_karaoke_text = f"{{\\K{total_cs}}}{line.get('phonetic', '')}"
 
         events.append(
-            f"Dialogue: 1,{start_str},{end_str},KaraokePhonetic,,0,0,0,,{{\\an5\\pos(960,760)}}{phonetic_karaoke_text}"
+            f"Dialogue: 3,{start_str},{end_str},KaraokePhonetic,,0,0,0,,{{\\an5\\pos(960,555)\\fad(140,140)}}{phonetic_karaoke_text}"
         )
 
-        # 3. Translation line (placed below phonetic line)
-        translation_text = line.get("translation", "").replace("\n", " ")
+        # 3. Translation line (42pt italic, centered at y=635 below phonetic line)
+        translation_text = line.get("translation", "").replace("\n", " ").strip()
         if translation_text:
             events.append(
-                f"Dialogue: 0,{start_str},{end_str},KaraokeTranslation,,0,0,180,,{{\\an2\\pos(960,860)}}\"{translation_text}\""
+                f"Dialogue: 2,{start_str},{end_str},KaraokeTranslation,,0,0,0,,{{\\an2\\pos(960,635)\\fad(140,140)}}\"{translation_text}\""
             )
 
+        # --- BOTTOM SLOT: Upcoming Next Line (Line idx + 1) Rising & Fading In ---
+        if idx + 1 < len(lines):
+            nxt_line = lines[idx + 1]
+            gap_to_next = float(nxt_line["start"]) - l_end
+            # Show look-ahead preview when next line starts within 6.0s (skip across long instrumental solos)
+            if gap_to_next <= 6.0:
+                nxt_native = nxt_line.get("native", "").replace("\n", " ").strip()
+                nxt_phonetic = nxt_line.get("phonetic", "").replace("\n", " ").strip()
+                nxt_translation = nxt_line.get("translation", "").replace("\n", " ").strip()
+
+                if nxt_native:
+                    events.append(
+                        f"Dialogue: 1,{start_str},{end_str},KaraokeNextNative,,0,0,0,,"
+                        f"{{\\an8\\move(960,785,960,760,0,350)\\fad(320,120)}}{nxt_native}"
+                    )
+                if nxt_phonetic:
+                    events.append(
+                        f"Dialogue: 1,{start_str},{end_str},KaraokeNextPhonetic,,0,0,0,,"
+                        f"{{\\an5\\move(960,860,960,835,0,350)\\fad(320,120)}}{nxt_phonetic}"
+                    )
+                if nxt_translation:
+                    events.append(
+                        f"Dialogue: 1,{start_str},{end_str},KaraokeNextTranslation,,0,0,0,,"
+                        f"{{\\an2\\move(960,925,960,900,0,350)\\fad(320,120)}}\"{nxt_translation}\""
+                    )
+
     full_ass = ass_template.format(title=metadata.get("title", "Karaoke Track")) + "\n".join(events) + "\n"
-    
+
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(full_ass)
-        
+
     return full_ass
 
 if __name__ == "__main__":

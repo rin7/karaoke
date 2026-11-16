@@ -126,11 +126,11 @@ sequenceDiagram
 ### Step 5: Strict ASCII Phonetic Romanization & 3-Tier Subtitles (`phonetic_transliterator.py` & `subtitle_writer.py`)
 - **Batched Transliteration:** Processes timed lines in batches of `25` via Gemini 2.5 Flash (with deterministic offline `CHAR_MAP` fallback for Arabic, Persian, and Armenian), locking `"native"` strictly to Step 4's transcribed vocal words.
 - **Strict ASCII Enforcement (`sanitize_strict_ascii_phonetic`):** Folds any stray diacritics (`ā -> aa`, `ī -> ee`, `ū -> oo`, `ḥ -> h`, `š -> sh`, `ə -> uh`) and Arabizi digits (`3 -> a`, `7 -> h`, `5 -> kh`, `2 -> '`, `8 -> gh`) into plain English `A–Z` letters while keeping Step 4's `[start, end]` timestamps 100% untouched.
-- **Gap-Accurate `.ass` Karaoke Generation (`export_ass_karaoke`):**
-  - Renders 3 synchronized tiers at `1920x1080`:
-    1. **Top (`y=635`, `KaraokeNative`, `56pt` Bold):** Original Armenian / Persian / Arabic script — sized prominently just slightly smaller than the Latin phonetic line.
-    2. **Center (`y=760`, `KaraokePhonetic`, `62pt` Bold):** Phonetic English with smooth `{\K<cs>}` cyan-gold fill sweeps and `{\k<gap_cs>}` pause holds across mid-line breath gaps.
-    3. **Bottom (`y=860`, `KaraokeTranslation`, `34pt` Italic):** English meaning translation.
+- **Gap-Accurate 3-Slot Center-Focused Rolling `.ass` Karaoke Generation (`export_ass_karaoke`):**
+  - Renders a **3-Slot Teleprompter Rolling Stage** (`Top Fading Previous [Line i-1]` + `Center Active [Line i]` + `Bottom Rising Next [Line i+1]`) across `1920x1080`:
+    1. **Top Slot (`Line i-1` — Fading Out Previous Line, when gap $\le 4.0\text{s}$):** `KaraokePrevNative` (`48pt` Bold at `y=195 -> 170`), `KaraokePrevPhonetic` (`54pt` Bold at `y=265 -> 240`), and `KaraokePrevTranslation` (`32pt` Italic at `y=325 -> 300`) gently drift upward (`\move`) and dissolve (`\fad(0,fade_ms)`) over the first `~1.8s` of `Line i`.
+    2. **Center Slot (`Line i` — Main Active Line):** Dead-center `KaraokeNative` (`68pt` Bold at `y=465`, slightly smaller than Latin), `KaraokePhonetic` (`74pt` Bold at `y=555` with `{\K<cs>}` sweeps and `{\k<gap_cs>}` pause holds), and `KaraokeTranslation` (`42pt` Italic at `y=635`) at `100%` brightness (`\fad(140,140)`).
+    3. **Bottom Slot (`Line i+1` — Appearing Next Line, when gap $\le 6.0\text{s}$):** `KaraokeNextNative` (`52pt` Bold at `y=785 -> 760`), `KaraokeNextPhonetic` (`58pt` Bold at `y=860 -> 835`), and `KaraokeNextTranslation` (`34pt` Italic at `y=925 -> 900`) rise smoothly (`\move` + `\fad(320,120)`) into the lower preview slot.
 
 ### Step 6: Hard-Burned 1080p MP4 Video Rendering (`karaoke_video_renderer.py`)
 - **Libass Auto-Detection:** Automatically selects Python's bundled `imageio_ffmpeg` binary (compiled with `libass`, `HarfBuzz`, and `FriBidi` for complex Arabic/Persian RTL shaping and Armenian glyphs) when macOS system `ffmpeg` lacks `libass`.

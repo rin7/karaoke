@@ -218,8 +218,12 @@ class TestStep3LyricsSearchAntiHallucination(unittest.TestCase):
         )
         self.assertEqual(q, "Tata Simonyan Sirum em Qez")
 
+        q2 = clean_song_query("Mohsen Yeganeh - Behet Ghol Midam ( I promise you )", "Mohsen Yeganeh")
+        self.assertEqual(q2, "Mohsen Yeganeh Behet Ghol Midam")
+
+    @patch("lyrics_search.search_lrclib", return_value=[])
     @patch("lyrics_search.search_lyricstranslate", return_value=[])
-    def test_auto_search_never_hallucinates_when_unmatched(self, _mock_lt):
+    def test_auto_search_never_hallucinates_when_unmatched(self, _mock_lt, _mock_lrc):
         res = auto_search_lyrics("Tata Simonyan - Sirum em Qez // Aj te Dzakh - Vol.3 // 1998", "Tata Simonyan")
         self.assertFalse(res["found"])
         self.assertEqual(res["original_lyrics"], "")
@@ -425,7 +429,21 @@ class TestStep5PhoneticsAndSubtitles(unittest.TestCase):
                         # Intentional 1.30s breath pause (11.20 -> 12.50 = 130 cs)
                         {"native": "սիրում եմ քեզ", "phonetic": "seeroom em kez", "start": 12.50, "end": 14.00},
                     ],
-                }
+                },
+                {
+                    "line_id": 1,
+                    "start": 14.30,
+                    "end": 17.50,
+                    "native": "Դու անուշիկ աղջիկ ես",
+                    "phonetic": "Doo anooshik aghjik es",
+                    "translation": "You are a sweet girl",
+                    "words": [
+                        {"native": "Դու", "phonetic": "Doo", "start": 14.30, "end": 15.00},
+                        {"native": "անուշիկ", "phonetic": "anooshik", "start": 15.05, "end": 16.20},
+                        {"native": "աղջիկ", "phonetic": "aghjik", "start": 16.25, "end": 17.00},
+                        {"native": "ես", "phonetic": "es", "start": 17.05, "end": 17.50},
+                    ],
+                },
             ]
             json_p = os.path.join(tmp, "lyrics.json")
             lrc_p = os.path.join(tmp, "lyrics.lrc")
@@ -437,9 +455,22 @@ class TestStep5PhoneticsAndSubtitles(unittest.TestCase):
 
             self.assertTrue(os.path.exists(json_p))
             self.assertIn("[00:10.00]", lrc_str)
-            self.assertIn("Style: KaraokePhonetic, Montserrat, 62", ass_str)
-            self.assertIn("Style: KaraokeNative, Arial, 56", ass_str)
+            self.assertIn("Style: KaraokePhonetic, Montserrat, 74", ass_str)
+            self.assertIn("Style: KaraokeNative, Arial, 68", ass_str)
+            self.assertIn("Style: KaraokePrevPhonetic, Montserrat, 54", ass_str)
+            self.assertIn("Style: KaraokePrevNative, Arial, 48", ass_str)
+            self.assertIn("Style: KaraokeNextPhonetic, Montserrat, 58", ass_str)
+            self.assertIn("Style: KaraokeNextNative, Arial, 52", ass_str)
             self.assertIn("KaraokeTranslation", ass_str)
+            # Verify 3-Slot Center-Focused Rolling Lyrics:
+            # 1) Active line in Center Slot (y=465/555/635)
+            self.assertIn("KaraokeNative,,0,0,0,,{\\an8\\pos(960,465)\\fad(140,140)}Սիրում եմ քեզ, սիրում եմ քեզ", ass_str)
+            # 2) Upcoming line rising in Bottom Slot (y=785->760, 860->835)
+            self.assertIn("KaraokeNextNative,,0,0,0,,{\\an8\\move(960,785,960,760,0,350)\\fad(320,120)}Դու անուշիկ աղջիկ ես", ass_str)
+            self.assertIn("KaraokeNextPhonetic,,0,0,0,,{\\an5\\move(960,860,960,835,0,350)\\fad(320,120)}Doo anooshik aghjik es", ass_str)
+            # 3) Previous line drifting upward and fading in Top Slot (y=195->170, 265->240)
+            self.assertIn("KaraokePrevNative,,0,0,0,,{\\an8\\move(960,195,960,170,", ass_str)
+            self.assertIn("KaraokePrevPhonetic,,0,0,0,,{\\an5\\move(960,265,960,240,", ass_str)
             # Must contain {\k130} pause hold between word 1 and word 2!
             self.assertIn("{\\k130}", ass_str)
 
@@ -447,9 +478,10 @@ class TestStep5PhoneticsAndSubtitles(unittest.TestCase):
 class TestStep6VideoRenderAndFullPipeline(unittest.TestCase):
     """Step 6 & End-to-End: Verify 1080p burned-in MP4 uses clean vocal-free instrumental."""
 
+    @patch("lyrics_search.search_lrclib", return_value=[])
     @patch("lyrics_search.search_lyricstranslate", return_value=[])
     @patch("lyrics_aligner.transcribe_chunk_with_gemini")
-    def test_full_pipeline_times_on_vocals_and_renders_vocal_free_mp4(self, mock_gemini, _mock_lt):
+    def test_full_pipeline_times_on_vocals_and_renders_vocal_free_mp4(self, mock_gemini, _mock_lt, _mock_lrc):
         mock_gemini.return_value = {
             "language": "hy",
             "lines": [
@@ -681,9 +713,10 @@ class TestStep7TelemetryCrashAndFreezeDetection(unittest.TestCase):
 class TestStep8WebStudioAndAPI(unittest.TestCase):
     """Step 8: Verify v0.1 Web Studio UI, PWA manifest, REST API job submission, and HTTP Range streaming."""
 
+    @patch("lyrics_search.search_lrclib", return_value=[])
     @patch("lyrics_search.search_lyricstranslate", return_value=[])
     @patch("lyrics_aligner.transcribe_chunk_with_gemini")
-    def test_web_studio_ui_and_end_to_end_job_api(self, mock_gemini, _mock_lt):
+    def test_web_studio_ui_and_end_to_end_job_api(self, mock_gemini, _mock_lt, _mock_lrc):
         from fastapi.testclient import TestClient
 
         mock_gemini.return_value = {
